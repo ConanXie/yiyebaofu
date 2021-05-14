@@ -23,7 +23,11 @@
     "commands": [
       {
         "command": "yiyebaofu.relaunch",
-        "title": "Relaunch YiYeBaoFu"
+        "title": "YIYEBAOFU: Relaunch YiYeBaoFu"
+      },
+      {
+        "command": "yiyebaofu.updateCurrency",
+        "title": "YIYEBAOFU: Update Currency"
       }
     ],
     "configuration": {

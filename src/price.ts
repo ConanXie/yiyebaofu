@@ -12,11 +12,15 @@ const UP_COLOR = '#43a047';
 
 const DOWN_COLOR = '#bb616b';
 
+const CURRENCY_STATE = 'allCurrencies';
+
 const matchCurrencyRe = /marketlist_all_currs\s?=\s?([^;]+)/;
 
 const coinStatusBarItems = new Map<string, vscode.StatusBarItem>();
 
 const currencyInfoMaps = new Map<string, Currency | undefined>();
+
+let timeout: NodeJS.Timeout;
 
 let allCurrencies: AllCurrencies = {
   spot: [],
@@ -52,17 +56,33 @@ function getCoinConfig(coin: string) {
   );
 }
 
-export async function createPriceTag() {
-  try {
-    const res = await axios.get<string>(
-      'https://www.gateio.ch/cn/trade/BTC_USDT',
-    );
-    const result = res.data.match(matchCurrencyRe);
-    if (result) {
-      allCurrencies = JSON.parse(result[1]);
+function heartbeat(context: vscode.ExtensionContext) {
+  clearInterval(timeout);
+  timeout = setInterval(() => {
+    if (socket?.readyState === WebSocket.CLOSED) {
+      reopenWebSocket(context);
     }
-  } catch (error) {
-    console.log(error);
+  }, 60 * 1000);
+}
+
+export async function createPriceTag(context: vscode.ExtensionContext) {
+  heartbeat(context);
+
+  const currenciesState = context.globalState.get<AllCurrencies>(CURRENCY_STATE);
+
+  if (!currenciesState) {
+    try {
+      const res = await axios.get<string>('https://www.gateio.ch/cn/trade/BTC_USDT');
+      const result = res.data.match(matchCurrencyRe);
+      if (result) {
+        allCurrencies = JSON.parse(result[1]);
+        context.globalState.update(CURRENCY_STATE, allCurrencies);
+      }
+    } catch (error) {
+      console.log(error);
+    }
+  } else {
+    allCurrencies = currenciesState;
   }
 
   const config = vscode.workspace.getConfiguration();
@@ -117,9 +137,7 @@ export async function createPriceTag() {
       const changeStr = Number(change).toFixed(2);
 
       statusBarCoinValue.text = `$${priceStr}　${
-        change > 0
-          ? `$(triangle-up) +${changeStr}`
-          : `$(triangle-down) ${changeStr}`
+        change > 0 ? `$(triangle-up) +${changeStr}` : `$(triangle-down) ${changeStr}`
       }%　　`;
 
       statusBarCoinValue.color = change < 0 ? DOWN_COLOR : UP_COLOR;
@@ -150,14 +168,26 @@ export async function createPriceTag() {
 
   socket.on('error', (err) => {
     console.log(err);
-    reopenWebSocket();
+    reopenWebSocket(context);
+  });
+
+  socket.on('close', () => {
+    reopenWebSocket(context);
   });
 }
 
-export function reopenWebSocket() {
-  socket?.close();
+export function reopenWebSocket(context: vscode.ExtensionContext) {
+  if (socket.readyState === WebSocket.OPEN) {
+    socket?.close();
+  }
   coinStatusBarItems.forEach((item) => item.dispose());
   coinStatusBarItems.clear();
 
-  createPriceTag();
+  createPriceTag(context);
+}
+
+export async function updateCurrencyConfig(context: vscode.ExtensionContext) {
+  await context.globalState.update(CURRENCY_STATE, undefined);
+
+  reopenWebSocket(context);
 }
